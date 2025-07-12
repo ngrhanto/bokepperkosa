@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 
 export default defineConfig({
-  site: 'https://bokepmamah.pages.dev',
+  site: 'https://bokepperkosa.pages.dev',
   output: 'server',
   adapter: cloudflare(),
 });
