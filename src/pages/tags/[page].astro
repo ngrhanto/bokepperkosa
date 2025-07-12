@@ -4,14 +4,15 @@ import Layout from '../../layouts/BaseLayout.astro';
 import { getAllVideos, type VideoData } from '../../utils/data.ts';
 import { slugify } from '../../utils/slugify.ts';
 import { desk, nama, url } from '../../utils/site';
-
 export const prerender = true;
 
-// Definisikan jumlah tag per halaman
-const TAGS_PER_PAGE = 1000;
+export async function getStaticPaths() {
+    // Definisi ITEMS_PER_PAGE_TAGS dipindahkan ke DALAM fungsi ini
+    const ITEMS_PER_PAGE_TAGS = 1000;
 
-// Fungsi filter tags Anda (bisa diletakkan di file utils terpisah jika ingin lebih rapi)
-function filterAndSortTags(allVideos: VideoData[]): string[] {
+    const allVideos: VideoData[] = await getAllVideos();
+
+    // --- LOGIKA FILTER DAN SORT TAG (DUPLIKASI dari index.astro) ---
     const uniqueTags = new Set<string>();
     allVideos.forEach(video => {
         if (typeof video.tags === 'string') {
@@ -31,7 +32,7 @@ function filterAndSortTags(allVideos: VideoData[]): string[] {
         const isJustBokep = /^bokep$/i.test(lowerCaseTag);
         const isBokepFollowedByNumbers = /^bokep\s+\d+$/i.test(lowerCaseTag);
         const isBokepIrrelevant = isBokepAndSpecificRandom || isJustBokep || isBokepFollowedByNumbers;
-        
+
         const words = lowerCaseTag.split(/\s+/);
         const isSingleLongRandomWord = words.length === 1 && words[0].length > 20;
 
@@ -51,137 +52,165 @@ function filterAndSortTags(allVideos: VideoData[]): string[] {
             isSingleWordAndInShortStopList
         );
     });
+    const sortedTags = filteredTags.sort((a, b) => a.localeCompare(b));
+    // --- AKHIR LOGIKA FILTER DAN SORT TAG ---
 
-    return filteredTags.sort((a, b) => a.localeCompare(b));
+    const totalTags = sortedTags.length;
+    const totalPages = Math.ceil(totalTags / ITEMS_PER_PAGE_TAGS);
+
+    let paths = [];
+    // Buat path untuk setiap halaman
+    for (let i = 2; i <= totalPages; i++) {
+        const paginatedTagsForThisPage = sortedTags.slice(
+            (i - 1) * ITEMS_PER_PAGE_TAGS,
+            i * ITEMS_PER_PAGE_TAGS
+        );
+
+        paths.push({
+            params: { page: String(i) },
+            props: {
+                currentPage: i,
+                totalTags: totalTags,
+                totalPages: totalPages,
+                paginatedTags: paginatedTagsForThisPage,
+            }
+        });
+    }
+
+    return paths;
 }
 
+// Destrukturisasi props yang diterima dari getStaticPaths
+const { currentPage, totalTags, totalPages, paginatedTags } = Astro.props;
 
-// --- getStaticPaths untuk paginasi ---
-export async function getStaticPaths() {
-    const allVideosData: VideoData[] = await getAllVideos();
-    const sortedTags = filterAndSortTags(allVideosData);
-
-    const totalPages = Math.ceil(sortedTags.length / TAGS_PER_PAGE);
-
-    // Ini akan membuat path seperti /tags/1, /tags/2, dll.
-    return Array.from({ length: totalPages }, (_, i) => ({
-        params: { page: (i + 1).toString() },
-        props: {
-            page: i + 1,
-            tags: sortedTags.slice(i * TAGS_PER_PAGE, (i + 1) * TAGS_PER_PAGE),
-            totalPages: totalPages,
-            currentPage: i + 1,
-        },
-    }));
-}
-
-
-const { tags, totalPages, currentPage } = Astro.props;
-
+// Breadcrumbs untuk navigasi
 const breadcrumbs = [
-  { name: 'Home', url: `${url}` },
-  { name: 'Semua Tags', url: `${url}/tags/1` },
-  { name: `Halaman ${currentPage}` },
+    { name: 'Home', url: `${url}` },
+    { name: 'Semua Tags', url: `${url}/tags/` },
+    { name: `Halaman ${currentPage}` },
 ];
 
-// Ubah schemaWebPage jika perlu, misalnya tambahkan informasi halaman
-const schemaWebPage = {
-  "@context": "https://schema.org",
-  "@type": "WebPage",
-  "url": `${url}/tags/${currentPage}`,
-  "name": `Semua Tags - Halaman ${currentPage} - ${nama}`,
-  "description": `Jelajahi daftar lengkap tags dan kategori video yang tersedia di ${nama}. Temukan konten favorit Anda berdasarkan topik. Halaman ${currentPage} dari ${totalPages}.`,
-  "publisher": {
-    "@type": "Organization",
-    "name": nama,
-    "logo": {
-      "@type": "ImageObject",
-      "url": `${url}/logo.png`
-    }
-  },
-  "inLanguage": "id-ID",
-  "mainEntityOfPage": {
-    "@type": "WebPage",
-    "@id": `${url}/tags/${currentPage}`
-  }
+// Schema.org untuk BreadcrumbList (SEO)
+const schemaBreadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": breadcrumbs.map((item, index) => ({
+        "@type": "ListItem",
+        "position": index + 1,
+        "name": item.name,
+        ...(item.url && { "item": item.url })
+    }))
 };
 
-// Pastikan pageKeywords disesuaikan dengan tags yang ada di halaman ini
-const pageKeywords = `tags video, daftar tags, ${nama} tags, topik video, genre video, halaman ${currentPage}, ${tags.slice(0, 5).join(', ')}${tags.length > 5 ? ', dll.' : ''}`;
+// Schema.org untuk WebPage (SEO)
+const schemaWebPage = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "url": `${url}/tags/${currentPage}`,
+    "name": `Tags Halaman ${currentPage} - ${nama}`,
+    "description": `Jelajahi daftar tags video halaman ${currentPage} di ${nama}. Temukan konten favorit Anda berdasarkan topik.`,
+    "publisher": {
+        "@type": "Organization",
+        "name": nama,
+        "logo": {
+            "@type": "ImageObject",
+            "url": `${url}/logo.png`
+        }
+    },
+    "inLanguage": "id-ID",
+    "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": `${url}/tags/${currentPage}`
+    }
+};
+
+// Keywords untuk meta tag SEO
+const pageKeywords = `tags video, daftar tags, ${nama} tags, topik video, genre video, halaman ${currentPage}, ${paginatedTags.slice(0, 5).join(', ')}${paginatedTags.length > 5 ? ', dll.' : ''}`;
 
 ---
 
 <Layout
-  title={`Semua Tags Video - Halaman ${currentPage} - ${nama} | Jelajahi Kategori Lengkap`}
-  description={`Jelajahi daftar lengkap tags dan kategori video yang tersedia di ${nama}. Temukan konten favorit Anda berdasarkan topik dan genre. Navigasi cepat ke video yang Anda cari. Halaman ${currentPage} dari ${totalPages}.`}
-  siteName={nama}
-  siteUrl={url}
-  keywords={pageKeywords}
+    title={`Tags Video Halaman ${currentPage} - ${nama} | Jelajahi Kategori Lengkap`}
+    description={`Jelajahi daftar tags video halaman ${currentPage} di ${nama}. Temukan konten favorit Anda berdasarkan topik dan genre. Navigasi cepat ke video yang Anda cari.`}
+    siteName={nama}
+    siteUrl={url}
+    keywords={pageKeywords}
 >
-  <script type="application/ld+json" set:html={JSON.stringify(schemaBreadcrumb)} />
-  <script type="application/ld+json" set:html={JSON.stringify(schemaWebPage)} />
+    <script type="application/ld+json" set:html={JSON.stringify(schemaBreadcrumb)} />
+    <script type="application/ld+json" set:html={JSON.stringify(schemaWebPage)} />
 
-  <main class="tags-index-page">
-    <nav class="breadcrumb" aria-label="breadcrumb">
-      <ol vocab="https://schema.org/" typeof="BreadcrumbList">
-        {breadcrumbs.map((item, index) => (
-          <li property="itemListElement" typeof="ListItem">
-            {index > 0 && <span class="separator" aria-hidden="true">/</span>}
-            {item.url ? (
-              <a property="item" typeof="WebPage" href={item.url}>
-                <span property="name">{item.name}</span>
-              </a>
-            ) : (
-              <span property="name">{item.name}</span>
-            )}
-            <meta property="position" content={(index + 1).toString()} />
-          </li>
-        ))}
-      </ol>
-    </nav>
+    <main class="tags-index-page">
+        <nav class="breadcrumb" aria-label="breadcrumb">
+            <ol vocab="https://schema.org/" typeof="BreadcrumbList">
+                {breadcrumbs.map((item, index) => (
+                    <li property="itemListElement" typeof="ListItem">
+                        {index > 0 && <span class="separator" aria-hidden="true">/</span>}
+                        {item.url ? (
+                            <a property="item" typeof="WebPage" href={item.url}>
+                                <span property="name">{item.name}</span>
+                            </a>
+                        ) : (
+                            <span property="name">{item.name}</span>
+                        )}
+                        <meta property="position" content={(index + 1).toString()} />
+                    </li>
+                ))}
+            </ol>
+        </nav>
 
-    <h1 class="page-title">Daftar Lengkap Tags Video di {nama} <small>(Halaman {currentPage} dari {totalPages})</small></h1>
+        <h1 class="page-title">Daftar Lengkap Tags Video di {nama} (Halaman {currentPage})</h1>
 
-    {tags.length === 0 ? (
-      <p class="no-tags-message">
-        Tidak ada tags yang ditemukan di halaman ini.
-      </p>
-    ) : (
-      <div class="tags-grid">
-        {tags.map(tag => (
-          <a href={`${url}/video/${slugify(tag)}/1`} class="tag-card" rel="tag" title={`Lihat semua video dengan tag ${tag}`}>
-            {tag}
-          </a>
-        ))}
-      </div>
-    )}
+        {paginatedTags.length === 0 ? (
+            <p class="no-tags-message">
+                Tidak ada tags yang ditemukan di halaman ini.
+            </p>
+        ) : (
+            <div class="tags-grid">
+                {paginatedTags.map(tag => {
+                    if (typeof tag !== 'string' || tag.trim() === '') {
+                        return null;
+                    }
+                    const tagSlug = slugify(tag);
+                    if (!tagSlug) {
+                        return null;
+                    }
+                    return (
+                        <a href={`${url}/video/${tagSlug}/1`} class="tag-card" rel="tag" title={`Lihat semua video dengan tag ${tag}`}>
+                            {tag}
+                        </a>
+                    )
+                })}
+            </div>
+        )}
 
-    {/* --- Navigasi Paginasi --- */}
-    {totalPages > 1 && (
-      <nav class="pagination-nav" aria-label="Tag page navigation">
-        <ul class="pagination-list">
-          {currentPage > 1 && (
-            <li class="pagination-item">
-              <a href={`${url}/tags/${currentPage - 1}`} class="pagination-link">&larr; Sebelumnya</a>
-            </li>
-          )}
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNumber => (
-            <li class="pagination-item">
-              <a
-                href={`${url}/tags/${pageNumber}`}
-                class={`pagination-link ${pageNumber === currentPage ? 'active' : ''}`}
-              >
-                {pageNumber}
-              </a>
-            </li>
-          ))}
-          {currentPage < totalPages && (
-            <li class="pagination-item">
-              <a href={`${url}/tags/${currentPage + 1}`} class="pagination-link">Selanjutnya &rarr;</a>
-            </li>
-          )}
-        </ul>
-      </nav>
-    )}
-  </main>
+        {totalPages > 1 && (
+            <nav class="pagination" aria-label="Tag Pagination">
+                <ul class="pagination-list">
+                    {currentPage > 1 && (
+                        <li class="pagination-item">
+                            <a href={`${url}/tags/${currentPage - 1 === 1 ? '' : currentPage - 1}`} class="pagination-link" aria-label="Previous Page">Sebelumnya</a>
+                        </li>
+                    )}
+
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                        <li class="pagination-item">
+                            <a
+                                href={`${url}/tags/${page === 1 ? '' : page}`}
+                                class={`pagination-link ${page === currentPage ? 'active' : ''}`}
+                                aria-current={page === currentPage ? 'page' : undefined}
+                            >
+                                {page}
+                            </a>
+                        </li>
+                    ))}
+
+                    {currentPage < totalPages && (
+                        <li class="pagination-item">
+                            <a href={`${url}/tags/${currentPage + 1}`} class="pagination-link" aria-label="Next Page">Selanjutnya</a>
+                        </li>
+                    )}
+                </ul>
+            </nav>
+        )}
+    </main>
 </Layout>
